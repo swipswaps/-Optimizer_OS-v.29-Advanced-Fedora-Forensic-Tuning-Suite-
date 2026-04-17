@@ -5,6 +5,32 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { spawn, exec, ChildProcess } from "child_process";
 
+// Recovery Utilities
+const safeParseJSON = (filePath: string, fallback: any = {}) => {
+  try {
+    if (!fs.existsSync(filePath)) return fallback;
+    const content = fs.readFileSync(filePath, 'utf8');
+    if (!content.trim()) return fallback;
+    return JSON.parse(content);
+  } catch (e) {
+    console.error(`[RECOVERY] Failed to parse ${filePath}, using fallback.`, e);
+    return fallback;
+  }
+};
+
+const purgeOldLogs = (logDir: string, maxLogs: number = 500) => {
+  if (!fs.existsSync(logDir)) return;
+  const dirs = fs.readdirSync(logDir).sort().reverse();
+  if (dirs.length > maxLogs) {
+    console.log(`[STORAGE] Pruring ${dirs.length - maxLogs} old forensic traces...`);
+    dirs.slice(maxLogs).forEach(dir => {
+      try {
+        fs.rmSync(path.join(logDir, dir), { recursive: true, force: true });
+      } catch (e) { console.error(`[STORAGE_ERR] Cleanup failed for ${dir}`); }
+    });
+  }
+};
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 let activeProbe: ChildProcess | null = null;
 
@@ -64,10 +90,12 @@ async function startServer() {
     if (dirs.length === 0) return;
 
     try {
-      const latestEvent = JSON.parse(fs.readFileSync(path.join(logDir, dirs[0], "event.json"), 'utf8'));
+      const latestEvent = safeParseJSON(path.join(logDir, dirs[0], "event.json"), null);
+      if (!latestEvent || !latestEvent.state) return;
+      
       const state = latestEvent.state;
-      const sysParams = JSON.parse(fs.readFileSync(path.resolve("./simulated_kernel_state.json"), 'utf8'));
-      const thresholds = sysParams.thresholds || { psi: 15, latency: 150, d_state: 1 };
+      const sysParams = safeParseJSON(path.resolve("./simulated_kernel_state.json"), { thresholds: { psi: 15, latency: 150, d_state: 1 } });
+      const thresholds = sysParams.thresholds;
 
       let action = null;
       if (state.psi > thresholds.psi) action = "sysctl -w vm.swappiness=10";
@@ -104,10 +132,11 @@ async function startServer() {
       const dirs = fs.readdirSync(logDir).sort().reverse().slice(0, 50);
       const events = dirs.map(d => {
         const eventPath = path.join(logDir, d, "event.json");
-        if (fs.existsSync(eventPath)) {
+        const parsed = safeParseJSON(eventPath, null);
+        if (parsed) {
             return {
                 timestamp: d,
-                ...JSON.parse(fs.readFileSync(eventPath, 'utf8'))
+                ...parsed
             };
         }
         return null;
@@ -153,7 +182,9 @@ async function startServer() {
       const dirs = fs.readdirSync(logDir).sort().reverse();
       if (dirs.length === 0) return res.json({ suggestions: [] });
 
-      const latestEvent = JSON.parse(fs.readFileSync(path.join(logDir, dirs[0], "event.json"), 'utf8'));
+      const latestEvent = safeParseJSON(path.join(logDir, dirs[0], "event.json"), null);
+      if (!latestEvent || !latestEvent.state) return res.json({ suggestions: [] });
+      
       const state = latestEvent.state;
       const suggestions = [];
 
@@ -262,7 +293,9 @@ async function startServer() {
     try {
       const files = fs.readdirSync(profileDir);
       const profiles = files.map(f => {
-        const content = JSON.parse(fs.readFileSync(path.join(profileDir, f), 'utf8'));
+        const content = safeParseJSON(path.join(profileDir, f), null);
+        if (!content) return null;
+        
         const isMetadataFile = content.data !== undefined;
         return {
           id: f.replace(".json", ""),
@@ -271,7 +304,7 @@ async function startServer() {
           type: content.type || (Array.isArray(content) ? 'optimizer' : 'kernel'),
           data: isMetadataFile ? content.data : content
         };
-      });
+      }).filter(Boolean);
       res.json(profiles);
     } catch (error) {
       res.status(500).json({ error: String(error) });
@@ -333,7 +366,7 @@ async function startServer() {
 
   app.get("/api/system/params", (req, res) => {
     try {
-      const state = JSON.parse(fs.readFileSync(sysStatePath, 'utf8'));
+      const state = safeParseJSON(sysStatePath, defaultSysState);
       // Defensive merge in case file was created with older schema
       const merged = { ...defaultSysState, ...state, thresholds: { ...defaultSysState.thresholds, ...(state.thresholds || {}) } };
       res.json(merged);
@@ -440,6 +473,12 @@ async function startServer() {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }
+
+  // Maintenance Task: Periodic Cleanup
+  setInterval(() => {
+    const logDir = path.resolve("./io_probe_logs_v29");
+    purgeOldLogs(logDir, 200);
+  }, 3600000); // Hourly
 
   const server = app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);

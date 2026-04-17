@@ -350,13 +350,16 @@ export default function App() {
       }
     }));
   };
-  const chartData = Array.isArray(events) ? [...events].reverse().map(e => ({
-    time: e.timestamp?.split('_')[1]?.replace(/(\d{2})(\d{2})(\d{2})/, '$1:$2:$3') || '0',
-    latency: e.state?.lat || 0,
-    psi: e.state?.psi || 0,
-    io: (e.state?.io || 0) / 1024, // KB
-    d_count: e.state?.d_count || 0
-  })) : [];
+  const chartData = Array.isArray(events) ? [...events].reverse().map(e => {
+    const ts = e.timestamp || '0_000000';
+    return {
+      time: ts.split('_')[1]?.replace(/(\d{2})(\d{2})(\d{2})/, '$1:$2:$3') || '00:00:00',
+      latency: (e.state && typeof e.state.lat === 'number') ? e.state.lat : 0,
+      psi: (e.state && typeof e.state.psi === 'number') ? e.state.psi : 0,
+      io: (e.state && typeof e.state.io === 'number') ? (e.state.io / 1024) : 0, // KB
+      d_count: (e.state && typeof e.state.d_count === 'number') ? e.state.d_count : 0
+    };
+  }) : [];
 
   const activeEdges = events[0]?.edges || [];
 
