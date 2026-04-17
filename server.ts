@@ -33,6 +33,8 @@ const purgeOldLogs = (logDir: string, maxLogs: number = 500) => {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 let activeProbe: ChildProcess | null = null;
+let probeRestartDelay = 1000;
+const MAX_PROBE_RESTART_DELAY = 60000; // 1 minute max backoff
 
 async function startServer() {
   const app = express();
@@ -50,11 +52,22 @@ async function startServer() {
     activeProbe.stderr?.on("data", (data) => console.error(`[PROBE_ERR] ${data}`));
 
     activeProbe.on("close", (code) => {
-      console.log(`[SYSTEM] Probe process exited with code ${code}. Restarting in 5s...`);
+      console.log(`[SYSTEM] Probe process exited with code ${code}.`);
       activeProbe = null;
-      // Guarded restart to prevent leaks on shutdown
+      
+      // Exponential Backoff Protection (Inspired by pm2/systemd)
       if (probeRestartTimer) clearTimeout(probeRestartTimer);
-      probeRestartTimer = setTimeout(startProbe, 5000);
+      
+      console.log(`[KINETIC_RECOVERY] Scheduling restart in ${probeRestartDelay}ms...`);
+      probeRestartTimer = setTimeout(() => {
+        probeRestartDelay = Math.min(probeRestartDelay * 2, MAX_PROBE_RESTART_DELAY);
+        startProbe();
+      }, probeRestartDelay);
+    });
+
+    activeProbe.on("spawn", () => {
+      console.log("[SYSTEM] Probe successfully spawned. Resetting backoff timer.");
+      probeRestartDelay = 1000;
     });
 
     activeProbe.on("error", (err) => {
@@ -421,6 +434,28 @@ async function startServer() {
     })).sort((a, b) => b.ioRate - a.ioRate);
 
     res.json(data);
+  });
+
+  // Self-Healing API
+  app.post("/api/system/self-heal", (req, res) => {
+    console.log("[SYSTEM] User initiated Self-Healing sequence...");
+    exec("bash self-heal.sh", (err, stdout, stderr) => {
+      res.json({ 
+        success: !err, 
+        output: stdout,
+        error: stderr
+      });
+    });
+  });
+
+  // Standard Health Probes (Kk8s Style)
+  app.get("/live", (req, res) => res.json({ status: "alive" }));
+  app.get("/ready", (req, res) => {
+    const isReady = activeProbe && activeProbe.exitCode === null;
+    res.status(isReady ? 200 : 503).json({ 
+      status: isReady ? "ready" : "warming_up",
+      probeActive: !!isReady
+    });
   });
 
   // Health Check Simulation & Diagnostics

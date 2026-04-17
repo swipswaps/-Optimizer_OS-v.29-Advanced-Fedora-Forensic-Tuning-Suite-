@@ -65,18 +65,24 @@ def snapshot_worker():
             d_path = os.path.join(OUTDIR, ts)
             os.makedirs(d_path, exist_ok=True)
             
-            # Write structured JSON
-            with open(os.path.join(d_path, "event.json"), "w") as f:
+            # Atomic write for JSON metadata
+            meta_path = os.path.join(d_path, "event.json")
+            tmp_meta_path = meta_path + ".tmp"
+            with open(tmp_meta_path, "w") as f:
                 json.dump(meta, f, indent=2)
                 f.flush()
                 os.fsync(f.fileno())
+            os.rename(tmp_meta_path, meta_path)
             
             # Write forensic artifacts
             for name, content in raw_data.items():
-                with open(os.path.join(d_path, f"{name}.txt"), "w") as f:
+                artifact_path = os.path.join(d_path, f"{name}.txt")
+                tmp_artifact_path = artifact_path + ".tmp"
+                with open(tmp_artifact_path, "w") as f:
                     f.write(content)
+                os.rename(tmp_artifact_path, artifact_path)
 
-            log(f"Async snapshot flushed: {ts}")
+            log(f"Async atomic snapshot flushed: {ts}")
         except Empty:
             continue
         except Exception as e:

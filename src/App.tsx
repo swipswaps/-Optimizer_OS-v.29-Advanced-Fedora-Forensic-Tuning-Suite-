@@ -6,7 +6,8 @@ import {
 import { 
   Activity, Database, Cpu, HardDrive, AlertTriangle, Clock, 
   Terminal, ShieldCheck, ChevronRight, Search, FileText, Settings,
-  Download, FileImage, FileCode, CheckCircle, XCircle, AlertCircle
+  Download, FileImage, FileCode, CheckCircle, XCircle, AlertCircle,
+  Zap
 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
@@ -71,6 +72,7 @@ export default function App() {
   const [processSearch, setProcessSearch] = useState("");
   const [expandedPids, setExpandedPids] = useState<number[]>([]);
   const [automationActive, setAutomationActive] = useState(false);
+  const [healing, setHealing] = useState(false);
   const profileInputRef = useRef<HTMLInputElement>(null);
 
   // System Parameter Tuning States
@@ -126,6 +128,28 @@ export default function App() {
       const data = await res.json();
       if (data.success) setAutomationActive(data.enabled);
     } catch (e) { console.error(e); }
+  };
+
+  const runSelfHeal = async () => {
+    setHealing(true);
+    setApplyStatus("INITIATING_SELF_HEAL...");
+    try {
+      const response = await fetch('/api/system/self-heal', { method: 'POST' });
+      const data = await response.json();
+      if (data.success) {
+        setApplyStatus("SYSTEM_ENVIRONMENT_RECOVERED");
+        fetchHealthStatus(); // Refresh health after heal
+      } else {
+        setApplyStatus("RECOVERY_FAILED_CHECK_LOGS");
+      }
+    } catch (e) {
+      setApplyStatus("CONNECTION_ERROR_IN_HEAL");
+    } finally {
+      setTimeout(() => {
+        setHealing(false);
+        setApplyStatus(null);
+      }, 3000);
+    }
   };
 
   const fetchPredefinedProfiles = async () => {
@@ -1172,11 +1196,26 @@ export default function App() {
                     <ShieldCheck className="text-accent" size={20} />
                     <h4 className="text-[13px] font-bold uppercase tracking-widest">Environment Reliability Audit</h4>
                   </div>
-                  <div className={cn(
-                    "text-[10px] font-mono px-2 py-0.5 rounded uppercase",
-                    healthStatus?.overall === 'healthy' ? "bg-accent/20 text-accent" : "bg-red-500/20 text-red-500"
-                  )}>
-                    {healthStatus?.overall || "RELIABILITY_PENDING"}
+                  <div className="flex items-center gap-3">
+                    <button 
+                      onClick={runSelfHeal}
+                      disabled={healing}
+                      className={cn(
+                        "text-[9px] font-black uppercase tracking-[0.2em] px-3 py-1 border transition-all flex items-center gap-2",
+                        healing 
+                          ? "border-accent/50 text-accent/50 cursor-wait bg-accent/5" 
+                          : "border-accent text-accent hover:bg-accent hover:text-bg shadow-[0_0_10px_rgba(0,255,156,0.1)]"
+                      )}
+                    >
+                      <Zap size={10} className={cn(healing && "animate-pulse")} />
+                      {healing ? "HEALING..." : "AUTO_REPAIR"}
+                    </button>
+                    <div className={cn(
+                      "text-[10px] font-mono px-2 py-0.5 rounded uppercase",
+                      healthStatus?.overall === 'healthy' ? "bg-accent/20 text-accent" : "bg-red-500/20 text-red-500"
+                    )}>
+                      {healthStatus?.overall || "RELIABILITY_PENDING"}
+                    </div>
                   </div>
                 </div>
 

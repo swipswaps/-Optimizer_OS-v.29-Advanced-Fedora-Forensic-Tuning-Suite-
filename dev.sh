@@ -19,7 +19,10 @@ if [ -d .git ]; then
     fi
 fi
 
-# 2. INSTANCE VERIFICATION
+# 2. SELF-HEAL / PRE-FLIGHT
+bash self-heal.sh
+
+# 3. INSTANCE VERIFICATION
 PORT=3000
 if lsof -Pi :$PORT -sTCP:LISTEN -t >/dev/null ; then
     echo "[ERROR] Port $PORT is already in use."
