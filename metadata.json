@@ -1,0 +1,6 @@
+{
+  "name": "Fedora IO Optimizer & Causality Probe",
+  "description": "A comprehensive toolset for diagnosing and optimizing I/O bottlenecks on Fedora Linux systems, particularly those using USB-attached BTRFS storage. Includes the latest v29 IO Causality Probe and an automated system tuner.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}

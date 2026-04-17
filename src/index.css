@@ -1,0 +1,20 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg: #0D0D0E;
+  --color-surface: #1A1B1E;
+  --color-ink: #E0E0E0;
+  --color-accent: #00FF9C;
+  --color-muted: #666666;
+  --color-line: #2D2D33;
+  --color-terminal-green: #00FF00;
+
+  --font-mono: "Courier New", Courier, monospace;
+  --font-sans: "Helvetica Neue", Helvetica, Arial, sans-serif;
+}
+
+@layer base {
+  body {
+    @apply bg-bg text-ink font-sans antialiased;
+  }
+}
