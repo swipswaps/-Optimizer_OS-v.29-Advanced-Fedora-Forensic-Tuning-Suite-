@@ -1008,7 +1008,7 @@ export default function App() {
                               { indent: 4, label: "docker-containerd (942)", pid: 942 },
                               { indent: 8, label: "kworker/u8:2 (412) - IO_WAITING", pid: 412, critical: true, details: {
                                 args: "[kworker/u8:2+events_unbound]",
-                                stack: "wait_on_page_writeback+0x34/0x90\n__filemap_fdatawait_range+0x7b/0xe0\nfile_write_and_wait_range+0x4a/0xa0\blkdev_fsync+0x31/0x50\nfasync_helper+0x80/0x100\n__x64_sys_fsync+0x12/0x20",
+                                stack: "wait_on_page_writeback+0x34/0x90\n__filemap_fdatawait_range+0x7b/0xe0\nfile_write_and_wait_range+0x4a/0xa0\nblkdev_fsync+0x31/0x50\nfasync_helper+0x80/0x100\n__x64_sys_fsync+0x12/0x20",
                                 context: "Kernel thread blocked on synchronous I/O commit to /dev/nvme0n1p3"
                               }},
                               { indent: 4, label: "Xorg (1021)", pid: 1021 },

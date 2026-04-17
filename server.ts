@@ -22,7 +22,7 @@ const purgeOldLogs = (logDir: string, maxLogs: number = 500) => {
   if (!fs.existsSync(logDir)) return;
   const dirs = fs.readdirSync(logDir).sort().reverse();
   if (dirs.length > maxLogs) {
-    console.log(`[STORAGE] Pruring ${dirs.length - maxLogs} old forensic traces...`);
+    console.log(`[STORAGE] Pruning ${dirs.length - maxLogs} old forensic traces...`);
     dirs.slice(maxLogs).forEach(dir => {
       try {
         fs.rmSync(path.join(logDir, dir), { recursive: true, force: true });

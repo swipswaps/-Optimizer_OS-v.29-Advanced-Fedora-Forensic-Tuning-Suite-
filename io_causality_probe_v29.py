@@ -106,7 +106,7 @@ def get_iowait():
             line = f.readline()
             if not line.startswith("cpu "): return 0
             v = list(map(int, line.split()[1:]))
-            return v[4] # iowit index
+            return v[4] # iowait index
     except: return 0
 
 def measure_real_latency(path="/var/tmp"):
@@ -153,7 +153,6 @@ def get_proc_io_delta():
 
 # --- CAUSAL GRAPH (WEIGHTED) ---
 def update_causal_graph(prev, cur):
-    global graph
     edges = []
     
     # IO -> D (Cause: Data movement leads to scheduler block)
