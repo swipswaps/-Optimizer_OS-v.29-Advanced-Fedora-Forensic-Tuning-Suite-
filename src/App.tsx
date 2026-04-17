@@ -6,7 +6,7 @@ import {
 import { 
   Activity, Database, Cpu, HardDrive, AlertTriangle, Clock, 
   Terminal, ShieldCheck, ChevronRight, Search, FileText, Settings,
-  Download, FileImage, FileCode
+  Download, FileImage, FileCode, CheckCircle, XCircle, AlertCircle
 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
@@ -32,6 +32,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'dashboard' | 'optimizers' | 'tuning' | 'files'>('dashboard');
   const [fileActivity, setFileActivity] = useState<any[]>([]);
+  const [healthStatus, setHealthStatus] = useState<any>(null);
 
   // Tuner States
   const [suggestions, setSuggestions] = useState<any[]>([]);
@@ -62,13 +63,16 @@ export default function App() {
     fetchPredefinedProfiles();
     fetchSystemParams();
     fetchFileActivity();
+    fetchHealthStatus();
     const probeInterval = setInterval(fetchLogs, 10000);
     const cpuInterval = setInterval(fetchCpuLoad, 1000);
     const fileInterval = setInterval(fetchFileActivity, 5000);
+    const healthInterval = setInterval(fetchHealthStatus, 15000);
     return () => {
       clearInterval(probeInterval);
       clearInterval(cpuInterval);
       clearInterval(fileInterval);
+      clearInterval(healthInterval);
     };
   }, []);
 
@@ -123,6 +127,16 @@ export default function App() {
       const res = await fetch('/api/system/file-activity');
       const data = await res.json();
       setFileActivity(data);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const fetchHealthStatus = async () => {
+    try {
+      const res = await fetch('/api/system/health');
+      const data = await res.json();
+      setHealthStatus(data);
     } catch (e) {
       console.error(e);
     }
@@ -254,7 +268,7 @@ export default function App() {
     }
   };
 
-  const latestState = events[0]?.state || { lat: 0, psi: 0, io: 0, d_count: 0 };
+  const latestState = events[0]?.state || { lat: 0, psi: 0, io: 0, d_count: 0, d_pids: [] };
   const updateThreshold = (key: 'psi' | 'latency' | 'd_state', value: number) => {
     setSysParams(prev => ({
       ...prev,
@@ -264,13 +278,13 @@ export default function App() {
       }
     }));
   };
-  const chartData = [...events].reverse().map(e => ({
-    time: e.timestamp.split('_')[1]?.replace(/(\d{2})(\d{2})(\d{2})/, '$1:$2:$3') || '0',
-    latency: e.state.lat,
-    psi: e.state.psi,
-    io: e.state.io / 1024, // KB
-    d_count: e.state.d_count
-  }));
+  const chartData = Array.isArray(events) ? [...events].reverse().map(e => ({
+    time: e.timestamp?.split('_')[1]?.replace(/(\d{2})(\d{2})(\d{2})/, '$1:$2:$3') || '0',
+    latency: e.state?.lat || 0,
+    psi: e.state?.psi || 0,
+    io: (e.state?.io || 0) / 1024, // KB
+    d_count: e.state?.d_count || 0
+  })) : [];
 
   const activeEdges = events[0]?.edges || [];
 
@@ -918,6 +932,39 @@ export default function App() {
                   Run Global Analysis
                 </button>
               </header>
+
+              {/* Reliability Audit Panel */}
+              <div className="bg-surface border border-line p-6 space-y-4">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-3">
+                    <ShieldCheck className="text-accent" size={20} />
+                    <h4 className="text-[13px] font-bold uppercase tracking-widest">Environment Reliability Audit</h4>
+                  </div>
+                  <div className={cn(
+                    "text-[10px] font-mono px-2 py-0.5 rounded uppercase",
+                    healthStatus?.overall === 'healthy' ? "bg-accent/20 text-accent" : "bg-red-500/20 text-red-500"
+                  )}>
+                    {healthStatus?.overall || "RELIABILITY_PENDING"}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {healthStatus?.checks.map((check: any) => (
+                    <div key={check.id} className="flex items-start gap-3 p-3 bg-bg/50 border border-line rounded transition-all hover:bg-line/10">
+                      {check.status === 'pass' ? <CheckCircle size={14} className="text-accent mt-0.5 shrink-0" /> : 
+                       check.status === 'fail' ? <XCircle size={14} className="text-red-500 mt-0.5 shrink-0" /> : 
+                       <AlertCircle size={14} className="text-orange-500 mt-0.5 shrink-0" />}
+                      <div className="space-y-1">
+                        <div className="text-[11px] font-bold text-white uppercase tracking-tight">{check.name}</div>
+                        <div className="text-[10px] text-muted font-mono leading-tight">{check.message}</div>
+                        {check.status === 'fail' && (
+                          <div className="text-[9px] text-red-400 uppercase font-black tracking-widest animate-pulse">[ACTION_REQUIRED]</div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
 
               {suggestions.length > 0 ? (
                 <div className="space-y-4">

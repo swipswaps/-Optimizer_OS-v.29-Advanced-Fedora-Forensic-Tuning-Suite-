@@ -46,9 +46,14 @@ def log(msg):
 
 def run_cmd(cmd, timeout=3):
     try:
-        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout).stdout
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        if res.returncode != 0:
+            return f"[CMD ERROR] Exit code {res.returncode}\n{res.stderr}"
+        return res.stdout
+    except subprocess.TimeoutExpired:
+        return "[TIMEOUT] Command took too long"
     except Exception as e:
-        return f"[CMD ERROR] {e}"
+        return f"[CMD FAILURE] {e}"
 
 # --- ASYNC LOG WRITER ---
 def snapshot_worker():
@@ -206,7 +211,7 @@ while run_state["running"]:
         raw = {
             "ps": run_cmd(["ps", "-eo", "pid,ppid,state,cmd,%cpu,%mem", "--sort=-%cpu"]),
             "top": run_cmd(["top", "-bn1"]),
-            "dmesg": run_cmd(["dmesg", "-T", "|", "tail", "-n", "100"]),
+            "dmesg": run_cmd(["dmesg", "-T"]), # Simplified, server-side can trace if needed
         }
         
         # Capture stack traces for D-State processes
