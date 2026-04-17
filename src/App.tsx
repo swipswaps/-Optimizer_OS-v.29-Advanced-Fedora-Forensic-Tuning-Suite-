@@ -30,7 +30,8 @@ export default function App() {
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const [eventDetails, setEventDetails] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'optimizers' | 'tuning'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'optimizers' | 'tuning' | 'files'>('dashboard');
+  const [fileActivity, setFileActivity] = useState<any[]>([]);
 
   // Tuner States
   const [suggestions, setSuggestions] = useState<any[]>([]);
@@ -60,11 +61,14 @@ export default function App() {
     fetchProfiles();
     fetchPredefinedProfiles();
     fetchSystemParams();
+    fetchFileActivity();
     const probeInterval = setInterval(fetchLogs, 10000);
     const cpuInterval = setInterval(fetchCpuLoad, 1000);
+    const fileInterval = setInterval(fetchFileActivity, 5000);
     return () => {
       clearInterval(probeInterval);
       clearInterval(cpuInterval);
+      clearInterval(fileInterval);
     };
   }, []);
 
@@ -112,6 +116,16 @@ export default function App() {
 
   const updateSystemParam = (key: string, value: any) => {
     setSysParams(prev => ({ ...prev, [key]: value }));
+  };
+
+  const fetchFileActivity = async () => {
+    try {
+      const res = await fetch('/api/system/file-activity');
+      const data = await res.json();
+      setFileActivity(data);
+    } catch (e) {
+      console.error(e);
+    }
   };
 
   const saveAndApplyParams = async () => {
@@ -398,20 +412,18 @@ export default function App() {
                        <h4 className="text-[11px] font-bold uppercase tracking-widest text-accent">Hot Inodes - Top Paths</h4>
                        <span className="text-[9px] font-mono opacity-50">SYNC_PERIOD: 5S</span>
                     </div>
-                    {[
-                      { path: '/var/lib/mysql/ibdata1', io: '840KB/s', type: 'Database' },
-                      { path: '/home/user/.cache/google-chrome/', io: '1.2MB/s', type: 'Cache' },
-                      { path: '/usr/bin/python3', io: '310KB/s', type: 'Binary' },
-                      { path: '/var/log/audit/audit.log', io: '12KB/s', type: 'Journal' },
-                    ].map((f, i) => (
+                    {fileActivity.slice(0, 5).map((f, i) => (
                       <div key={i} className="bg-surface/50 border border-line p-3 flex justify-between items-center">
-                        <div>
-                           <div className="text-[11px] font-mono text-ink truncate max-w-[160px]">{f.path}</div>
+                        <div className="overflow-hidden">
+                           <div className="text-[11px] font-mono text-ink truncate w-full" title={f.path}>{f.path}</div>
                            <div className="text-[9px] uppercase tracking-tight text-muted">{f.type} Activity</div>
                         </div>
-                        <div className="text-[12px] font-mono text-accent">{f.io}</div>
+                        <div className="text-[12px] font-mono text-accent shrink-0 ml-3">{f.ioRate}KB/s</div>
                       </div>
                     ))}
+                    {fileActivity.length === 0 && (
+                      <div className="text-center py-4 text-[10px] text-muted italic">Scanning inodes...</div>
+                    )}
                  </div>
               </div>
             ) : (
@@ -615,7 +627,7 @@ export default function App() {
 
         {/* Dynamic Content Area */}
         <section className="p-6 overflow-y-auto custom-scrollbar">
-          {activeTab === 'dashboard' ? (
+          {activeTab === 'dashboard' && (
             <div className="space-y-6">
               {/* Alert Banner */}
               <AnimatePresence>
@@ -808,7 +820,91 @@ export default function App() {
                 </div>
               )}
             </div>
-          ) : (
+          )}
+
+          {activeTab === 'files' && (
+            <div className="space-y-6 max-w-6xl mx-auto">
+              <header className="mb-8 flex justify-between items-end">
+                <div>
+                  <h3 className="text-2xl font-bold text-white uppercase tracking-tight italic">Global File I/O Monitor</h3>
+                  <p className="text-sm text-muted">Real-time inode tracking and scheduler pressure attribution</p>
+                </div>
+                <div className="text-[10px] font-mono text-muted uppercase tracking-widest border border-line px-3 py-1 bg-surface">
+                  VFS_SNOOP // ACTIVE
+                </div>
+              </header>
+              
+              <div className="bg-surface border border-line overflow-hidden shadow-2xl">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-line/30 text-[10px] uppercase tracking-widest text-muted border-b border-line">
+                      <th className="p-4 px-6 font-bold">Filesystem Path</th>
+                      <th className="p-4 px-6 font-bold">Activity Type</th>
+                      <th className="p-4 px-6 font-bold text-right">Throughput</th>
+                      <th className="p-4 px-6 font-bold text-right">Pressure</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-line">
+                    {fileActivity.map((f, i) => (
+                      <tr key={i} className="hover:bg-line/10 transition-colors group">
+                        <td className="p-4 px-6">
+                          <div className="flex items-center gap-3">
+                            <div className="p-2 bg-bg border border-line rounded">
+                              <FileText size={14} className="text-accent opacity-50" />
+                            </div>
+                            <span className="text-[12px] font-mono text-ink group-hover:text-accent transition-colors">{f.path}</span>
+                          </div>
+                        </td>
+                        <td className="p-4 px-6">
+                          <span className={cn(
+                            "px-2 py-0.5 rounded text-[9px] font-bold uppercase border",
+                            f.type === 'write' ? "bg-red-500/10 text-red-500 border-red-500/30 font-black" :
+                            f.type === 'read' ? "bg-blue-500/10 text-blue-500 border-blue-500/30" :
+                            "bg-slate-500/10 text-slate-500 border-slate-500/30"
+                          )}>
+                            {f.type}
+                          </span>
+                        </td>
+                        <td className="p-4 px-6 text-right font-mono text-[13px] text-accent">
+                          {f.ioRate.toLocaleString()} <span className="text-[9px] opacity-40">KB/s</span>
+                        </td>
+                        <td className="p-4 px-6 text-right">
+                           <div className="flex justify-end items-center gap-1.5 h-6">
+                             {Array.from({ length: 5 }).map((_, barIdx) => {
+                               const intensity = (f.ioRate / 1500) * 5;
+                               const isActive = barIdx < intensity;
+                               return (
+                                 <div 
+                                   key={barIdx} 
+                                   className={cn(
+                                     "w-1 rounded-full transition-all duration-500",
+                                     isActive 
+                                       ? (intensity > 4 ? "bg-red-500 h-full" : "bg-accent h-[60%]") 
+                                       : "bg-line h-[20%]"
+                                   )} 
+                                 />
+                               );
+                             })}
+                           </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                
+                {fileActivity.length === 0 && (
+                  <div className="py-24 text-center">
+                    <div className="flex justify-center mb-4">
+                      <div className="w-12 h-12 border-4 border-accent border-t-transparent rounded-full animate-spin" />
+                    </div>
+                    <p className="text-muted italic text-sm font-mono uppercase tracking-widest">Awaiting kernel inode events...</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {(activeTab === 'optimizers' || activeTab === 'tuning') && (
             <div className="space-y-6 max-w-4xl mx-auto">
               <header className="flex justify-between items-center mb-8">
                 <div>

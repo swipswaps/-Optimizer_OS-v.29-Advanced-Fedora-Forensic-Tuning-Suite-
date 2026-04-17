@@ -289,6 +289,29 @@ async function startServer() {
     res.json(coreData);
   });
 
+  // File Activity Simulation
+  app.get("/api/system/file-activity", (req, res) => {
+    const activities = ["read", "write", "metadata"];
+    const filePaths = [
+      "/var/lib/mysql/ibdata1",
+      "/home/user/.cache/google-chrome/Default/Cache/data_1",
+      "/usr/bin/python3",
+      "/var/log/audit/audit.log",
+      "/tmp/sess_8492039485",
+      "/etc/ld.so.cache",
+      "/home/user/workspace/project/node_modules/.bin/vite",
+      "/var/spool/postfix/public/pickup"
+    ];
+
+    const data = filePaths.map(path => ({
+      path,
+      ioRate: Math.floor(Math.random() * 1500) + 10, // 10 - 1510 KB/s
+      type: activities[Math.floor(Math.random() * activities.length)]
+    })).sort((a, b) => b.ioRate - a.ioRate);
+
+    res.json(data);
+  });
+
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },
