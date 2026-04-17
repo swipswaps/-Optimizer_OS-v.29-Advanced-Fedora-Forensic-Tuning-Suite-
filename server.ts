@@ -38,6 +38,54 @@ async function startServer() {
 
   app.use(express.json());
 
+  // Automation Configuration
+  let automationEnabled = false;
+  let lastAutoActionTime = 0;
+
+  app.get("/api/system/automation", (req, res) => res.json({ enabled: automationEnabled }));
+  app.post("/api/system/automation", (req, res) => {
+    automationEnabled = req.body.enabled;
+    res.json({ success: true, enabled: automationEnabled });
+  });
+
+  // Watchdog for Automation
+  setInterval(() => {
+    if (!automationEnabled) return;
+
+    const now = Date.now();
+    if (now - lastAutoActionTime < 60000) return; // Rate limit 1/min
+
+    const logDir = path.resolve("./io_probe_logs_v29");
+    if (!fs.existsSync(logDir)) return;
+
+    const dirs = fs.readdirSync(logDir).sort().reverse();
+    if (dirs.length === 0) return;
+
+    try {
+      const latestEvent = JSON.parse(fs.readFileSync(path.join(logDir, dirs[0], "event.json"), 'utf8'));
+      const state = latestEvent.state;
+      const sysParams = JSON.parse(fs.readFileSync(path.resolve("./simulated_kernel_state.json"), 'utf8'));
+      const thresholds = sysParams.thresholds || { psi: 15, latency: 150, d_state: 1 };
+
+      let action = null;
+      if (state.psi > thresholds.psi) action = "sysctl -w vm.swappiness=10";
+      else if (state.lat > thresholds.latency) action = "ionice -c 3 -p ALL";
+      else if (state.d_count >= thresholds.d_state) action = "systemctl --user stop tracker-miner-fs-3";
+
+      if (action) {
+        console.log(`[AUTOMATION] Triggered action: ${action}`);
+        exec(action, (err) => {
+           const logPath = path.resolve("./applied_optimizations.log");
+           const logEntry = `[${new Date().toISOString()}] AUTO_TRIGGERED: ${action}\n`;
+           fs.appendFileSync(logPath, logEntry);
+        });
+        lastAutoActionTime = now;
+      }
+    } catch (e) {
+      console.error("[AUTOMATION_ERR]", e);
+    }
+  }, 5000);
+
   // API to get probe history from logs
   app.get("/api/probe-logs", async (req, res) => {
     const logDir = path.resolve("./io_probe_logs_v29");
@@ -401,7 +449,9 @@ async function startServer() {
     
     const logPath = path.resolve("./applied_optimizations.log");
     const logEntry = `[${new Date().toISOString()}] SHUTDOWN: Session ended gracefully.\n`;
-    fs.appendFileSync(logPath, logEntry);
+    try {
+      fs.appendFileSync(logPath, logEntry);
+    } catch(e) {}
     
     process.exit(0);
   };

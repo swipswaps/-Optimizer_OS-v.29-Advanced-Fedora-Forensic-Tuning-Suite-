@@ -25,6 +25,20 @@ interface ProbeEvent {
   cycle: number;
 }
 
+const fuzzyMatch = (text: string, query: string) => {
+  if (!query) return true;
+  const q = query.toLowerCase();
+  const t = text.toLowerCase();
+  
+  if (t.includes(q)) return true;
+  
+  let n = -1;
+  for (let i = 0; i < q.length; i++) {
+    if (!~(n = t.indexOf(q[i], n + 1))) return false;
+  }
+  return true;
+};
+
 export default function App() {
   const [events, setEvents] = useState<ProbeEvent[]>([]);
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
@@ -45,6 +59,7 @@ export default function App() {
   const [inspectorProcessTreeOpen, setInspectorProcessTreeOpen] = useState(false);
   const [processSearch, setProcessSearch] = useState("");
   const [expandedPids, setExpandedPids] = useState<number[]>([]);
+  const [automationActive, setAutomationActive] = useState(false);
   const profileInputRef = useRef<HTMLInputElement>(null);
 
   // System Parameter Tuning States
@@ -68,7 +83,8 @@ export default function App() {
     fetchSystemParams();
     fetchFileActivity();
     fetchHealthStatus();
-    const probeInterval = setInterval(fetchLogs, 10000);
+    fetchAutomationStatus();
+    const probeInterval = setInterval(fetchLogs, 5000);
     const cpuInterval = setInterval(fetchCpuLoad, 1000);
     const fileInterval = setInterval(fetchFileActivity, 5000);
     const healthInterval = setInterval(fetchHealthStatus, 15000);
@@ -79,6 +95,27 @@ export default function App() {
       clearInterval(healthInterval);
     };
   }, []);
+
+  const fetchAutomationStatus = async () => {
+    try {
+      const res = await fetch('/api/system/automation');
+      const data = await res.json();
+      setAutomationActive(data.enabled);
+    } catch (e) { console.error(e); }
+  };
+
+  const toggleAutomation = async () => {
+    try {
+      const newState = !automationActive;
+      const res = await fetch('/api/system/automation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: newState })
+      });
+      const data = await res.json();
+      if (data.success) setAutomationActive(data.enabled);
+    } catch (e) { console.error(e); }
+  };
 
   const fetchPredefinedProfiles = async () => {
     try {
@@ -292,6 +329,7 @@ export default function App() {
   };
 
   const latestState = events[0]?.state || { lat: 0, psi: 0, io: 0, d_count: 0, d_pids: [] };
+  
   const updateThreshold = (key: 'psi' | 'latency' | 'd_state', value: number) => {
     setSysParams(prev => ({
       ...prev,
@@ -311,22 +349,6 @@ export default function App() {
 
   const activeEdges = events[0]?.edges || [];
 
-  const fuzzyMatch = (text: string, query: string) => {
-    if (!query) return true;
-    const q = query.toLowerCase();
-    const t = text.toLowerCase();
-    
-    // Simple inclusion for "fuzzy" feel
-    if (t.includes(q)) return true;
-    
-    // Character by character search (classic fuzzy)
-    let n = -1;
-    for (let i = 0; i < q.length; i++) {
-      if (!~(n = t.indexOf(q[i], n + 1))) return false;
-    }
-    return true;
-  };
-
   const criticalHealthChecks = healthStatus?.checks.filter((c: any) => c.status === 'fail' && !dismissedAlerts.includes(c.id)) || [];
 
   return (
@@ -338,6 +360,9 @@ export default function App() {
           <h1 className="font-mono font-bold text-[18px] tracking-tighter text-white">OPTIMIZER_OS // v.29</h1>
         </div>
         <div className="font-mono text-[12px] text-muted space-x-4 hidden md:block text-right">
+          {automationActive && (
+             <span className="text-accent animate-pulse font-bold mr-4">AUTO_TUNER: ACTIVE</span>
+          )}
           <span>HOST: fedora-e15-pro</span>
           <span>|</span>
           <span>UPTIME: 6h 12m</span>
@@ -1152,6 +1177,37 @@ export default function App() {
                       </div>
                     </div>
                   ))}
+                </div>
+              </div>
+
+              {/* Automation Engine Card */}
+              <div className="bg-surface border border-accent/20 p-6 rounded-2xl flex items-center justify-between group hover:border-accent/40 transition-all">
+                <div className="flex items-center gap-4">
+                  <div className={cn(
+                    "p-3 rounded-xl transition-all",
+                    automationActive ? "bg-accent/20 text-accent shadow-[0_0_15px_rgba(0,255,156,0.3)]" : "bg-line/30 text-muted"
+                  )}>
+                    <Cpu size={24} className={cn(automationActive && "animate-spin-slow")} />
+                  </div>
+                  <div>
+                    <h4 className="text-[14px] font-bold text-white uppercase tracking-widest">Autonomous Sentinel Engine</h4>
+                    <p className="text-[11px] text-muted mt-1 leading-relaxed">
+                      Automatically applies optimizations based on <span className="text-red-500 font-mono">threshold violations</span>.
+                    </p>
+                  </div>
+                </div>
+                <div 
+                  onClick={toggleAutomation}
+                  className={cn(
+                    "w-12 h-6 rounded-full p-1 cursor-pointer transition-all flex items-center shadow-inner",
+                    automationActive ? "bg-accent" : "bg-line"
+                  )}
+                >
+                   <motion.div 
+                    layout
+                    className="w-4 h-4 bg-white rounded-full shadow-lg"
+                    style={{ marginLeft: automationActive ? 'auto' : '0' }}
+                   />
                 </div>
               </div>
 
