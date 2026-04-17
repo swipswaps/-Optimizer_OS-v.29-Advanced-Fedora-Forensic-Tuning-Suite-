@@ -26,7 +26,9 @@ async function startServer() {
     activeProbe.on("close", (code) => {
       console.log(`[SYSTEM] Probe process exited with code ${code}. Restarting in 5s...`);
       activeProbe = null;
-      setTimeout(startProbe, 5000);
+      // Guarded restart to prevent leaks on shutdown
+      if (probeRestartTimer) clearTimeout(probeRestartTimer);
+      probeRestartTimer = setTimeout(startProbe, 5000);
     });
 
     activeProbe.on("error", (err) => {
@@ -74,9 +76,13 @@ async function startServer() {
 
       if (action) {
         console.log(`[AUTOMATION] Triggered action: ${action}`);
-        exec(action, (err) => {
+        exec(action, (err, stdout, stderr) => {
+           if (err) {
+             console.error(`[AUTOMATION_ERROR] Failed to apply ${action}: ${stderr}`);
+             return;
+           }
            const logPath = path.resolve("./applied_optimizations.log");
-           const logEntry = `[${new Date().toISOString()}] AUTO_TRIGGERED: ${action}\n`;
+           const logEntry = `[${new Date().toISOString()}] AUTO_TRIGGERED: ${action} | SUCCESS\n`;
            fs.appendFileSync(logPath, logEntry);
         });
         lastAutoActionTime = now;
@@ -435,29 +441,39 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
+  const server = app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
   });
 
   // CLEAN SHUTDOWN HANDLER
   const cleanup = () => {
     console.log("\n[SHUTDOWN] Cleaning up forensic environment...");
+    if (probeRestartTimer) clearTimeout(probeRestartTimer);
+    
     if (activeProbe) {
       console.log("[SHUTDOWN] Terminating I/O Probe...");
       activeProbe.kill("SIGTERM");
     }
     
+    server.close(() => {
+      console.log("[SHUTDOWN] API Server stopped.");
+    });
+
     const logPath = path.resolve("./applied_optimizations.log");
     const logEntry = `[${new Date().toISOString()}] SHUTDOWN: Session ended gracefully.\n`;
     try {
       fs.appendFileSync(logPath, logEntry);
     } catch(e) {}
     
-    process.exit(0);
+    setTimeout(() => {
+      console.log("[SHUTDOWN] Forced exit.");
+      process.exit(0);
+    }, 2000).unref();
   };
 
   process.on("SIGINT", cleanup);
   process.on("SIGTERM", cleanup);
 }
 
+let probeRestartTimer: NodeJS.Timeout | null = null;
 startServer();

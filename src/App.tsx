@@ -39,6 +39,17 @@ const fuzzyMatch = (text: string, query: string) => {
   return true;
 };
 
+interface SysParams {
+  "vm.swappiness": number;
+  "vm.dirty_ratio": number;
+  "io_scheduler": string;
+  "thresholds": {
+    psi: number;
+    latency: number;
+    d_state: number;
+  };
+}
+
 export default function App() {
   const [events, setEvents] = useState<ProbeEvent[]>([]);
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
@@ -63,7 +74,7 @@ export default function App() {
   const profileInputRef = useRef<HTMLInputElement>(null);
 
   // System Parameter Tuning States
-  const [sysParams, setSysParams] = useState({
+  const [sysParams, setSysParams] = useState<SysParams>({
     "vm.swappiness": 60,
     "vm.dirty_ratio": 20,
     "io_scheduler": "mq-deadline",
@@ -159,7 +170,7 @@ export default function App() {
     }
   };
 
-  const updateSystemParam = (key: string, value: any) => {
+  const updateSystemParam = (key: keyof Omit<SysParams, 'thresholds'>, value: any) => {
     setSysParams(prev => ({ ...prev, [key]: value }));
   };
 
@@ -869,23 +880,27 @@ export default function App() {
                   </div>
                 </div>
                 
-                <div className="flex-1 min-h-[200px]">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={cpuLoad} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#2D2D33" vertical={false} />
-                      <XAxis dataKey="core" stroke="#666666" fontSize={10} tickLine={false} axisLine={false} />
-                      <YAxis stroke="#666666" fontSize={10} tickLine={false} axisLine={false} domain={[0, 100]} />
-                      <Tooltip 
-                        cursor={{fill: 'rgba(255,255,255,0.05)'}} 
-                        contentStyle={{ backgroundColor: '#0D0D0E', border: '1px solid #2D2D33', fontSize: '12px', fontFamily: 'var(--font-mono)' }} 
-                      />
-                      <Bar dataKey="load" radius={[2, 2, 0, 0]}>
-                        {cpuLoad.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={entry.load > 80 ? "#ef4444" : "#00FF9C"} />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
+                <div className="flex-1 min-h-[200px] flex items-center justify-center">
+                  {cpuLoad.length > 0 ? (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={cpuLoad} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#2D2D33" vertical={false} />
+                        <XAxis dataKey="core" stroke="#666666" fontSize={10} tickLine={false} axisLine={false} />
+                        <YAxis stroke="#666666" fontSize={10} tickLine={false} axisLine={false} domain={[0, 100]} />
+                        <Tooltip 
+                          cursor={{fill: 'rgba(255,255,255,0.05)'}} 
+                          contentStyle={{ backgroundColor: '#0D0D0E', border: '1px solid #2D2D33', fontSize: '12px', fontFamily: 'var(--font-mono)' }} 
+                        />
+                        <Bar dataKey="load" radius={[2, 2, 0, 0]}>
+                          {cpuLoad.map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={(entry.load || 0) > 80 ? "#ef4444" : "#00FF9C"} />
+                          ))}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="text-[10px] text-muted uppercase font-mono animate-pulse">Awaiting core data...</div>
+                  )}
                 </div>
               </div>
 
