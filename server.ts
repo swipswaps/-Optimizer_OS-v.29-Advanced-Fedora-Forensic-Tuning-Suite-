@@ -10,6 +10,8 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
+  app.use(express.json());
+
   // API to get probe history from logs
   app.get("/api/probe-logs", async (req, res) => {
     const logDir = path.resolve("./io_probe_logs_v29");
@@ -194,7 +196,7 @@ async function startServer() {
     }
   });
 
-  app.post("/api/tuner/profiles", express.json(), (req, res) => {
+  app.post("/api/tuner/profiles", (req, res) => {
     const { name, data } = req.body;
     if (!name) return res.status(400).json({ error: "Name required" });
     try {
@@ -205,7 +207,7 @@ async function startServer() {
     }
   });
 
-  app.post("/api/tuner/apply", express.json(), (req, res) => {
+  app.post("/api/tuner/apply", (req, res) => {
     // In a real environment, this would execute sysctl/systemctl
     // For this context, we will write an 'apply_log' to simulate the execution
     const { actions } = req.body;
@@ -243,7 +245,7 @@ async function startServer() {
     }
   });
 
-  app.post("/api/system/params", express.json(), (req, res) => {
+  app.post("/api/system/params", (req, res) => {
     try {
       const newState = req.body;
       fs.writeFileSync(sysStatePath, JSON.stringify(newState, null, 2));

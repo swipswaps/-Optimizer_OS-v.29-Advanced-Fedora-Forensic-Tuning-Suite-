@@ -241,6 +241,15 @@ export default function App() {
   };
 
   const latestState = events[0]?.state || { lat: 0, psi: 0, io: 0, d_count: 0 };
+  const updateThreshold = (key: 'psi' | 'latency' | 'd_state', value: number) => {
+    setSysParams(prev => ({
+      ...prev,
+      thresholds: {
+        ...(prev.thresholds || { psi: 15, latency: 150, d_state: 1 }),
+        [key]: value
+      }
+    }));
+  };
   const chartData = [...events].reverse().map(e => ({
     time: e.timestamp.split('_')[1]?.replace(/(\d{2})(\d{2})(\d{2})/, '$1:$2:$3') || '0',
     latency: e.state.lat,
@@ -458,7 +467,7 @@ export default function App() {
                       <input 
                         type="range" min="5" max="50" 
                         value={sysParams.thresholds?.psi ?? 15}
-                        onChange={(e) => setSysParams(prev => ({ ...prev, thresholds: { ...(prev.thresholds || { psi: 15, latency: 150, d_state: 1 }), psi: parseInt(e.target.value) } }))}
+                        onChange={(e) => updateThreshold('psi', parseInt(e.target.value))}
                         className="w-full accent-red-500 bg-line h-1 rounded-full appearance-none"
                       />
                     </div>
@@ -471,7 +480,7 @@ export default function App() {
                       <input 
                         type="range" min="50" max="500" step="10"
                         value={sysParams.thresholds?.latency ?? 150}
-                        onChange={(e) => setSysParams(prev => ({ ...prev, thresholds: { ...(prev.thresholds || { psi: 15, latency: 150, d_state: 1 }), latency: parseInt(e.target.value) } }))}
+                        onChange={(e) => updateThreshold('latency', parseInt(e.target.value))}
                         className="w-full accent-red-500 bg-line h-1 rounded-full appearance-none"
                       />
                     </div>
@@ -484,7 +493,7 @@ export default function App() {
                       <input 
                         type="number" 
                         value={sysParams.thresholds?.d_state ?? 1}
-                        onChange={(e) => setSysParams(prev => ({ ...prev, thresholds: { ...(prev.thresholds || { psi: 15, latency: 150, d_state: 1 }), d_state: parseInt(e.target.value) || 0 } }))}
+                        onChange={(e) => updateThreshold('d_state', parseInt(e.target.value) || 0)}
                         className="w-full bg-bg border border-line p-2 text-[11px] font-mono text-ink outline-none focus:border-red-500"
                       />
                     </div>
