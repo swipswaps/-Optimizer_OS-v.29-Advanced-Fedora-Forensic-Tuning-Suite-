@@ -193,11 +193,13 @@ async function startServer() {
       const files = fs.readdirSync(profileDir);
       const profiles = files.map(f => {
         const content = JSON.parse(fs.readFileSync(path.join(profileDir, f), 'utf8'));
+        const isMetadataFile = content.data !== undefined;
         return {
           id: f.replace(".json", ""),
-          name: f.replace(".json", ""),
-          type: Array.isArray(content) ? 'optimizer' : 'kernel',
-          data: content
+          name: content.name || f.replace(".json", ""),
+          description: content.description || "",
+          type: content.type || (Array.isArray(content) ? 'optimizer' : 'kernel'),
+          data: isMetadataFile ? content.data : content
         };
       });
       res.json(profiles);
@@ -207,10 +209,16 @@ async function startServer() {
   });
 
   app.post("/api/tuner/profiles", (req, res) => {
-    const { name, data } = req.body;
+    const { name, description, data, type } = req.body;
     if (!name) return res.status(400).json({ error: "Name required" });
     try {
-      fs.writeFileSync(path.join(profileDir, `${name}.json`), JSON.stringify(data, null, 2));
+      const profileContent = {
+        name,
+        description: description || "",
+        type: type || (Array.isArray(data) ? 'optimizer' : 'kernel'),
+        data
+      };
+      fs.writeFileSync(path.join(profileDir, `${name}.json`), JSON.stringify(profileContent, null, 2));
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: String(error) });

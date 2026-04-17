@@ -1,4 +1,4 @@
-import { useState, useEffect, type ReactNode } from 'react';
+import { useState, useEffect, type ReactNode, useRef } from 'react';
 import { 
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area,
   BarChart, Bar, Cell
@@ -40,8 +40,11 @@ export default function App() {
   const [predefinedProfiles, setPredefinedProfiles] = useState<any[]>([]);
   const [applyStatus, setApplyStatus] = useState<string | null>(null);
   const [newProfileName, setNewProfileName] = useState("");
+  const [newProfileDescription, setNewProfileDescription] = useState("");
   const [dismissedAlerts, setDismissedAlerts] = useState<string[]>([]);
   const [inspectorProcessTreeOpen, setInspectorProcessTreeOpen] = useState(false);
+  const [processSearch, setProcessSearch] = useState("");
+  const profileInputRef = useRef<HTMLInputElement>(null);
 
   // System Parameter Tuning States
   const [sysParams, setSysParams] = useState({
@@ -206,6 +209,18 @@ export default function App() {
       const res = await fetch('/api/tuner/analyze', { method: 'POST' });
       const data = await res.json();
       setSuggestions(data.suggestions);
+      
+      // Pre-fill profile name with timestamp
+      const now = new Date();
+      const ts = now.toISOString().replace(/[-:T]/g, '').split('.')[0];
+      setNewProfileName(`USER_PROFILE_${ts}`);
+      setNewProfileDescription("");
+      
+      // Focus input after a short delay to ensure DOM is ready if activeTab changed
+      setTimeout(() => {
+        profileInputRef.current?.focus();
+        profileInputRef.current?.select();
+      }, 50);
     } catch (e) {
       console.error(e);
     }
@@ -214,13 +229,20 @@ export default function App() {
   const saveProfile = async () => {
     if (!newProfileName) return;
     try {
+      const type = activeTab === 'optimizers' ? 'optimizer' : 'kernel';
       const data = activeTab === 'optimizers' ? suggestions : sysParams;
       await fetch('/api/tuner/profiles', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: newProfileName, data })
+        body: JSON.stringify({ 
+          name: newProfileName, 
+          description: newProfileDescription,
+          type,
+          data 
+        })
       });
       setNewProfileName("");
+      setNewProfileDescription("");
       fetchProfiles();
     } catch (e) {
       console.error(e);
@@ -287,6 +309,8 @@ export default function App() {
   })) : [];
 
   const activeEdges = events[0]?.edges || [];
+
+  const criticalHealthChecks = healthStatus?.checks.filter((c: any) => c.status === 'fail' && !dismissedAlerts.includes(c.id)) || [];
 
   return (
     <div className="flex flex-col h-screen overflow-hidden bg-bg font-sans selection:bg-accent/30">
@@ -643,7 +667,38 @@ export default function App() {
         <section className="p-6 overflow-y-auto custom-scrollbar">
           {activeTab === 'dashboard' && (
             <div className="space-y-6">
-              {/* Alert Banner */}
+              {/* Critical System Alerts */}
+              <AnimatePresence>
+                {criticalHealthChecks.map((alert: any) => (
+                  <motion.div 
+                    key={alert.id}
+                    initial={{ height: 0, opacity: 0, marginBottom: 0 }}
+                    animate={{ height: 'auto', opacity: 1, marginBottom: 16 }}
+                    exit={{ height: 0, opacity: 0, marginBottom: 0 }}
+                    className="bg-red-500/10 border border-red-500/30 overflow-hidden rounded-xl"
+                  >
+                    <div className="p-4 flex items-center justify-between">
+                      <div className="flex items-center gap-4">
+                        <div className="w-10 h-10 rounded-full bg-red-500/20 flex items-center justify-center text-red-500 shrink-0">
+                          <AlertTriangle size={20} />
+                        </div>
+                        <div>
+                          <h4 className="text-[13px] font-bold text-red-500 uppercase tracking-widest">{alert.name}</h4>
+                          <p className="text-xs text-red-400/80 mt-0.5">{alert.message}</p>
+                        </div>
+                      </div>
+                      <button 
+                        onClick={() => setDismissedAlerts([...dismissedAlerts, alert.id])}
+                        className="px-4 py-2 text-[10px] font-bold uppercase tracking-widest text-red-500 hover:bg-red-500/10 rounded transition-all"
+                      >
+                        Dismiss Alert
+                      </button>
+                    </div>
+                  </motion.div>
+                ))}
+              </AnimatePresence>
+
+              {/* Threshold Alerts */}
               <AnimatePresence>
                 {((latestState.psi > (sysParams.thresholds?.psi ?? 15) || 
                    latestState.lat > (sysParams.thresholds?.latency ?? 150) || 
@@ -689,6 +744,43 @@ export default function App() {
                 <StatBox label="PSI I/O" value={`${latestState.psi.toFixed(1)}%`} trend={latestState.psi > 10 ? "warning" : "normal"} />
                 <StatBox label="Throughput" value={`${(latestState.io / 1024 / 1024).toFixed(1)} MB/s`} />
                 <StatBox label="D-State" value={latestState.d_count.toString()} trend={latestState.d_count > 0 ? "warning" : "normal"} />
+              </div>
+
+              {/* Environment Reliability Audit (Main Dashboard View) */}
+              <div className="bg-surface border border-line overflow-hidden rounded-2xl p-6">
+                <div className="flex items-center justify-between mb-6">
+                   <div className="flex items-center gap-3">
+                      <div className="p-2 bg-accent/10 rounded-lg">
+                        <ShieldCheck className="text-accent" size={20} />
+                      </div>
+                      <div>
+                        <h3 className="text-[14px] font-bold text-white uppercase tracking-[0.2em]">Environment Reliability</h3>
+                        <p className="text-[11px] text-muted">Diagnostic health of the causality probe and kernel modules</p>
+                      </div>
+                   </div>
+                   <div className={cn(
+                    "px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest",
+                    healthStatus?.overall === 'healthy' ? "bg-accent/20 text-accent border border-accent/30" : "bg-red-500/20 text-red-500 border border-red-500/30"
+                  )}>
+                    STATUS: {healthStatus?.overall || "INITIALIZING..."}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                  {healthStatus?.checks.map((check: any) => (
+                    <div key={check.id} className="p-4 bg-bg/40 border border-line rounded-xl flex items-start gap-3">
+                      <div className="mt-0.5">
+                        {check.status === 'pass' ? <CheckCircle size={16} className="text-accent" /> : 
+                         check.status === 'fail' ? <XCircle size={16} className="text-red-500" /> : 
+                         <AlertCircle size={16} className="text-orange-500" />}
+                      </div>
+                      <div className="space-y-1">
+                        <div className="text-[11px] font-bold text-white uppercase tracking-tight">{check.name}</div>
+                        <div className="text-[10px] text-muted font-mono leading-tight truncate max-w-[150px]" title={check.message}>{check.message}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
 
               {/* Visualization */}
@@ -804,20 +896,64 @@ export default function App() {
                   <div className="p-6 space-y-6">
                     {/* Process Tree Section */}
                     <div className="border border-line bg-bg/50">
-                       <button 
-                        onClick={() => setInspectorProcessTreeOpen(!inspectorProcessTreeOpen)}
-                        className="w-full p-3 px-4 flex justify-between items-center text-[10px] font-bold uppercase tracking-widest text-muted hover:bg-line/20 transition-all"
-                       >
-                          <span>Process Lineage Tree</span>
-                          <span className={cn("transition-transform", inspectorProcessTreeOpen && "rotate-180")}>▼</span>
-                       </button>
+                       <div className="flex flex-col md:flex-row border-b border-line items-center">
+                         <button 
+                          onClick={() => setInspectorProcessTreeOpen(!inspectorProcessTreeOpen)}
+                          className="flex-1 p-3 px-4 flex justify-between items-center text-[10px] font-bold uppercase tracking-widest text-muted hover:bg-line/20 transition-all"
+                         >
+                            <span>Process Lineage Tree</span>
+                            <span className={cn("transition-transform", inspectorProcessTreeOpen && "rotate-180")}>▼</span>
+                         </button>
+                         {inspectorProcessTreeOpen && (
+                            <div className="flex items-center px-4 py-1.5 border-l border-line bg-surface/50 w-full md:w-auto">
+                              <Search size={12} className="text-muted mr-2" />
+                              <input 
+                                type="text"
+                                placeholder="Filter by Name/PID..."
+                                value={processSearch}
+                                onChange={(e) => setProcessSearch(e.target.value)}
+                                className="bg-transparent text-[10px] font-mono outline-none text-accent uppercase w-full md:w-48"
+                              />
+                            </div>
+                         )}
+                       </div>
                        {inspectorProcessTreeOpen && (
-                         <div className="p-4 pt-2 font-mono text-[11px] leading-6 border-t border-line">
-                            <div className="text-accent">└─ systemd (1)</div>
-                            <div className="pl-4 border-l border-line ml-2">└─ docker-containerd (942)</div>
-                            <div className="pl-8 border-l border-line ml-2 text-red-500">└─ kworker/u8:2 (412) - IO_WAITING</div>
-                            <div className="pl-4 border-l border-line ml-2">└─ Xorg (1021)</div>
-                            <div className="pl-4 border-l border-line ml-2">└─ gnome-session (2104)</div>
+                         <div className="p-4 pt-2 font-mono text-[11px] leading-6 max-h-[300px] overflow-y-auto custom-scrollbar">
+                            {[
+                              { indent: 0, label: "systemd (1)" },
+                              { indent: 4, label: "docker-containerd (942)" },
+                              { indent: 8, label: "kworker/u8:2 (412) - IO_WAITING", critical: true },
+                              { indent: 4, label: "Xorg (1021)" },
+                              { indent: 4, label: "gnome-session (2104)" },
+                              { indent: 8, label: "gnome-shell (2251)" },
+                              { indent: 12, label: "chrome (4592) - 13% CPU" },
+                              { indent: 12, label: "chrome (4631) - 2% CPU" },
+                              { indent: 12, label: "chrome (4719) - RENDERER" },
+                              { indent: 8, label: "nautilus (2842)" },
+                              { indent: 0, label: "kthreadd (2)" },
+                              { indent: 4, label: "rcu_gp (3)" },
+                              { indent: 4, label: "rcu_par_gp (4)" },
+                            ].filter(p => !processSearch || p.label.toLowerCase().includes(processSearch.toLowerCase()))
+                            .map((p, i) => (
+                              <div key={i} className={cn(
+                                "border-l border-line ml-2",
+                                p.critical ? "text-red-500" : "text-slate-300"
+                              )} style={{ paddingLeft: `${p.indent * 4}px` }}>
+                                └─ {p.label}
+                              </div>
+                            ))}
+                            {processSearch && !([
+                                { label: "systemd (1)" },
+                                { label: "docker-containerd (942)" },
+                                { label: "kworker/u8:2 (412) - IO_WAITING" },
+                                { label: "Xorg (1021)" },
+                                { label: "gnome-session (2104)" },
+                                { label: "gnome-shell (2251)" },
+                                { label: "chrome (4592)" },
+                                { label: "nautilus (2842)" }
+                            ].some(p => p.label.toLowerCase().includes(processSearch.toLowerCase()))) && (
+                              <div className="text-muted italic text-[10px] text-center py-4">No matching processes in snapshot</div>
+                            )}
                          </div>
                        )}
                     </div>
@@ -967,59 +1103,71 @@ export default function App() {
               </div>
 
               {suggestions.length > 0 ? (
-                <div className="space-y-4">
-                  {suggestions.map((s) => (
-                    <div key={s.id} className="bg-surface border border-line p-6 flex flex-col md:flex-row gap-6 hover:border-accent/40 transition-all">
-                      <div className="flex-1 space-y-2">
-                        <div className="flex items-center gap-3">
-                          <span className="px-2 py-0.5 bg-line text-slate-400 text-[9px] font-bold uppercase rounded border border-slate-700">{s.category}</span>
-                          <h4 className="text-white font-bold tracking-tight">{s.target}</h4>
+                <div className="space-y-6">
+                    {/* User Profiles */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {profiles.map((p) => (
+                        <div 
+                          key={p.id} 
+                          onClick={() => loadProfile(p)}
+                          className="bg-surface border border-line p-4 cursor-pointer hover:border-accent group transition-all rounded-xl"
+                        >
+                          <div className="flex justify-between items-start mb-2">
+                             <div className="text-[10px] font-bold uppercase text-muted tracking-widest">{p.type}</div>
+                             <div className="text-[9px] font-mono text-accent bg-accent/10 px-1.5 rounded">{p.id}</div>
+                          </div>
+                          <h4 className="text-white font-bold tracking-tight mb-1">{p.name}</h4>
+                          <p className="text-[11px] text-slate-500 italic leading-tight mb-3 h-8 overflow-hidden line-clamp-2">
+                            {p.description || "Experimental system stabilization profile"}
+                          </p>
+                          <div className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-widest text-accent group-hover:translate-x-1 transition-transform">
+                             Load Profile <ChevronRight size={12} />
+                          </div>
                         </div>
-                        <p className="text-xs text-muted leading-relaxed">{s.description}</p>
-                        <div className="flex items-center gap-2 text-[10px] font-mono text-accent">
-                          <Activity size={12} />
-                          EXPECTED IMPACT: {s.impact}
-                        </div>
-                      </div>
-                      <div className="md:w-64 flex flex-col justify-center items-end gap-3">
-                         <code className="text-[11px] bg-black p-2 rounded text-terminal-green/80 flex-1 w-full text-center">
-                           {s.action}
-                         </code>
-                         <button 
-                           onClick={() => applyOptimizations([s.action])}
-                           className="w-full py-1.5 bg-line hover:bg-slate-700 text-ink text-[10px] font-bold uppercase border border-slate-700 transition-all"
-                         >
-                           Apply Parameter
-                         </button>
-                      </div>
+                      ))}
                     </div>
-                  ))}
 
-                  <div className="pt-8 border-t border-line flex flex-col md:flex-row items-center justify-between gap-4">
-                     <div className="flex items-center gap-4 w-full md:w-96">
-                        <input 
-                          type="text" 
-                          value={newProfileName}
-                          onChange={(e) => setNewProfileName(e.target.value)}
-                          placeholder="PROFIL_NAME_ID..."
-                          className="flex-1 bg-bg border border-line px-4 py-2 text-xs font-mono text-accent outline-none focus:border-accent transition-all uppercase"
-                        />
+                    <div className="pt-8 border-t border-line space-y-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                           <label className="text-[10px] font-bold text-muted uppercase tracking-[0.2em] ml-1">Profile Identifier</label>
+                           <input 
+                            ref={profileInputRef}
+                            type="text" 
+                            value={newProfileName}
+                            onChange={(e) => setNewProfileName(e.target.value)}
+                            placeholder="PROFIL_NAME_ID..."
+                            className="w-full bg-bg border border-line px-4 py-3 text-xs font-mono text-accent outline-none focus:border-accent transition-all uppercase rounded-lg"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                           <label className="text-[10px] font-bold text-muted uppercase tracking-[0.2em] ml-1">Behavioral Description</label>
+                           <input 
+                            type="text" 
+                            value={newProfileDescription}
+                            onChange={(e) => setNewProfileDescription(e.target.value)}
+                            placeholder="e.g. Optimized for kernel v5.19 memory pressure..."
+                            className="w-full bg-bg border border-line px-4 py-3 text-xs text-muted outline-none focus:border-muted transition-all rounded-lg"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col md:flex-row items-center justify-between gap-4 pt-4">
                         <button 
                           onClick={saveProfile}
-                          className="px-4 py-2 bg-slate-800 text-white text-xs font-bold uppercase tracking-widest border border-slate-700 hover:bg-slate-700 transition-all shrink-0"
+                          className="px-8 py-3 bg-slate-800 text-white text-xs font-black uppercase tracking-widest border border-slate-700 hover:bg-slate-700 transition-all rounded-lg w-full md:w-auto"
                         >
-                          Save Profile
+                          Save New Profile
                         </button>
-                     </div>
-
-                     <button 
-                       onClick={() => applyOptimizations(suggestions.map(s => s.action))}
-                       className="px-8 py-3 bg-white text-bg font-black uppercase tracking-[0.2em] text-xs hover:bg-accent transition-all w-full md:w-auto"
-                     >
-                       Commit All Changes
-                     </button>
+                        <button 
+                          onClick={() => applyOptimizations(suggestions.map(s => s.action))}
+                          className="px-10 py-4 bg-white text-bg font-black uppercase tracking-[0.3em] text-xs hover:bg-accent transition-all w-full md:w-auto rounded-lg shadow-xl"
+                        >
+                          Commit All Changes
+                        </button>
+                      </div>
+                    </div>
                   </div>
-                </div>
               ) : (
                 <div className="py-20 flex flex-col items-center justify-center text-slate-700 border-2 border-dashed border-line rounded-3xl">
                   <Settings size={64} className="mb-4 opacity-20" />
