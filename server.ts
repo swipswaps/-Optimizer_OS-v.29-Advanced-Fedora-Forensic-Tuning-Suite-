@@ -12,13 +12,29 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  // Initialize Probe as a managed background process
-  const probePath = path.resolve("./io_causality_probe_v29.py");
-  if (fs.existsSync(probePath)) {
+  // Initialize Probe as a managed background process with auto-restart
+  function startProbe() {
+    const probePath = path.resolve("./io_causality_probe_v29.py");
+    if (!fs.existsSync(probePath)) return;
+
     console.log("[SYSTEM] Initializing I/O Causality Probe...");
-    activeProbe = spawn("python3", [probePath], { stdio: "inherit" });
-    activeProbe.on("error", (err) => console.error("[PROBE_ERROR]", err.message));
+    activeProbe = spawn("python3", [probePath]);
+
+    activeProbe.stdout?.on("data", (data) => console.log(`[PROBE] ${data}`));
+    activeProbe.stderr?.on("data", (data) => console.error(`[PROBE_ERR] ${data}`));
+
+    activeProbe.on("close", (code) => {
+      console.log(`[SYSTEM] Probe process exited with code ${code}. Restarting in 5s...`);
+      activeProbe = null;
+      setTimeout(startProbe, 5000);
+    });
+
+    activeProbe.on("error", (err) => {
+      console.error("[PROBE_FATAL]", err.message);
+    });
   }
+
+  startProbe();
 
   app.use(express.json());
 

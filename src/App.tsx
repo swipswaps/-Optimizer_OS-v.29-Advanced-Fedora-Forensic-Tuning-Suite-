@@ -44,6 +44,7 @@ export default function App() {
   const [dismissedAlerts, setDismissedAlerts] = useState<string[]>([]);
   const [inspectorProcessTreeOpen, setInspectorProcessTreeOpen] = useState(false);
   const [processSearch, setProcessSearch] = useState("");
+  const [expandedPids, setExpandedPids] = useState<number[]>([]);
   const profileInputRef = useRef<HTMLInputElement>(null);
 
   // System Parameter Tuning States
@@ -309,6 +310,22 @@ export default function App() {
   })) : [];
 
   const activeEdges = events[0]?.edges || [];
+
+  const fuzzyMatch = (text: string, query: string) => {
+    if (!query) return true;
+    const q = query.toLowerCase();
+    const t = text.toLowerCase();
+    
+    // Simple inclusion for "fuzzy" feel
+    if (t.includes(q)) return true;
+    
+    // Character by character search (classic fuzzy)
+    let n = -1;
+    for (let i = 0; i < q.length; i++) {
+      if (!~(n = t.indexOf(q[i], n + 1))) return false;
+    }
+    return true;
+  };
 
   const criticalHealthChecks = healthStatus?.checks.filter((c: any) => c.status === 'fail' && !dismissedAlerts.includes(c.id)) || [];
 
@@ -918,42 +935,78 @@ export default function App() {
                          )}
                        </div>
                        {inspectorProcessTreeOpen && (
-                         <div className="p-4 pt-2 font-mono text-[11px] leading-6 max-h-[300px] overflow-y-auto custom-scrollbar">
+                         <div className="p-4 pt-2 font-mono text-[11px] leading-6 max-h-[400px] overflow-y-auto custom-scrollbar">
                             {[
-                              { indent: 0, label: "systemd (1)" },
-                              { indent: 4, label: "docker-containerd (942)" },
-                              { indent: 8, label: "kworker/u8:2 (412) - IO_WAITING", critical: true },
-                              { indent: 4, label: "Xorg (1021)" },
-                              { indent: 4, label: "gnome-session (2104)" },
-                              { indent: 8, label: "gnome-shell (2251)" },
-                              { indent: 12, label: "chrome (4592) - 13% CPU" },
-                              { indent: 12, label: "chrome (4631) - 2% CPU" },
-                              { indent: 12, label: "chrome (4719) - RENDERER" },
-                              { indent: 8, label: "nautilus (2842)" },
-                              { indent: 0, label: "kthreadd (2)" },
-                              { indent: 4, label: "rcu_gp (3)" },
-                              { indent: 4, label: "rcu_par_gp (4)" },
-                            ].filter(p => !processSearch || p.label.toLowerCase().includes(processSearch.toLowerCase()))
-                            .map((p, i) => (
-                              <div key={i} className={cn(
-                                "border-l border-line ml-2",
-                                p.critical ? "text-red-500" : "text-slate-300"
-                              )} style={{ paddingLeft: `${p.indent * 4}px` }}>
-                                └─ {p.label}
-                              </div>
-                            ))}
-                            {processSearch && !([
-                                { label: "systemd (1)" },
-                                { label: "docker-containerd (942)" },
-                                { label: "kworker/u8:2 (412) - IO_WAITING" },
-                                { label: "Xorg (1021)" },
-                                { label: "gnome-session (2104)" },
-                                { label: "gnome-shell (2251)" },
-                                { label: "chrome (4592)" },
-                                { label: "nautilus (2842)" }
-                            ].some(p => p.label.toLowerCase().includes(processSearch.toLowerCase()))) && (
-                              <div className="text-muted italic text-[10px] text-center py-4">No matching processes in snapshot</div>
-                            )}
+                              { indent: 0, label: "systemd (1)", pid: 1 },
+                              { indent: 4, label: "docker-containerd (942)", pid: 942 },
+                              { indent: 8, label: "kworker/u8:2 (412) - IO_WAITING", pid: 412, critical: true, details: {
+                                args: "[kworker/u8:2+events_unbound]",
+                                stack: "wait_on_page_writeback+0x34/0x90\n__filemap_fdatawait_range+0x7b/0xe0\nfile_write_and_wait_range+0x4a/0xa0\blkdev_fsync+0x31/0x50\nfasync_helper+0x80/0x100\n__x64_sys_fsync+0x12/0x20",
+                                context: "Kernel thread blocked on synchronous I/O commit to /dev/nvme0n1p3"
+                              }},
+                              { indent: 4, label: "Xorg (1021)", pid: 1021 },
+                              { indent: 4, label: "gnome-session (2104)", pid: 2104 },
+                              { indent: 8, label: "gnome-shell (2251)", pid: 2251 },
+                              { indent: 12, label: "chrome (4592) - 13% CPU", pid: 4592 },
+                              { indent: 12, label: "chrome (4631) - 2% CPU", pid: 4631 },
+                              { indent: 12, label: "chrome (4719) - RENDERER", pid: 4719 },
+                              { indent: 8, label: "nautilus (2842)", pid: 2842 },
+                              { indent: 0, label: "kthreadd (2)", pid: 2 },
+                              { indent: 4, label: "rcu_gp (3)", pid: 3 },
+                              { indent: 4, label: "rcu_par_gp (4)", pid: 4 },
+                            ].map((p, i) => {
+                              const isMatch = fuzzyMatch(p.label, processSearch);
+                              const isExpanded = expandedPids.includes(p.pid);
+                              
+                              return (
+                                <div key={i} className="space-y-1">
+                                  <div 
+                                    onClick={() => p.details && setExpandedPids(prev => prev.includes(p.pid) ? prev.filter(id => id !== p.pid) : [...prev, p.pid])}
+                                    className={cn(
+                                      "flex items-center gap-2 border-l border-line ml-2 cursor-pointer transition-colors px-1",
+                                      isMatch ? "bg-accent/10 border-l-accent" : "opacity-40",
+                                      p.critical && "text-red-500"
+                                    )} 
+                                    style={{ paddingLeft: `${p.indent * 4}px` }}
+                                  >
+                                    <span className={cn(isMatch ? "text-accent font-bold" : "text-slate-300")}>
+                                      └─ {p.label}
+                                    </span>
+                                    {p.details && (
+                                      <span className="text-[9px] bg-red-500/10 px-1 rounded animate-pulse">FIXATION_DETECTOR</span>
+                                    )}
+                                  </div>
+                                  
+                                  <AnimatePresence>
+                                    {isExpanded && p.details && (
+                                      <motion.div 
+                                        initial={{ height: 0, opacity: 0 }}
+                                        animate={{ height: 'auto', opacity: 1 }}
+                                        exit={{ height: 0, opacity: 0 }}
+                                        className="ml-6 pl-4 border-l-2 border-dashed border-red-500/30 overflow-hidden"
+                                      >
+                                        <div className="bg-bg/80 p-3 my-2 space-y-2 border border-red-500/20 rounded">
+                                          <div className="flex flex-col">
+                                            <span className="text-[9px] text-muted uppercase font-bold">Execution context</span>
+                                            <span className="text-[10px] text-red-400 italic">"{p.details.context}"</span>
+                                          </div>
+                                          <div className="flex flex-col">
+                                            <span className="text-[9px] text-muted uppercase font-bold">Kernel symbols / Call stack</span>
+                                            <pre className="text-[9px] text-slate-400 bg-black/50 p-2 rounded leading-tight">
+                                              {p.details.stack}
+                                            </pre>
+                                          </div>
+                                          <div className="flex flex-col">
+                                            <span className="text-[9px] text-muted uppercase font-bold">Process Argument List</span>
+                                            <code className="text-[10px] text-terminal-green/80">{p.details.args}</code>
+                                          </div>
+                                        </div>
+                                      </motion.div>
+                                    )}
+                                  </AnimatePresence>
+                                </div>
+                              );
+                            })}
                          </div>
                        )}
                     </div>
