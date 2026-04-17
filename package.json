@@ -4,12 +4,13 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "tsx server.ts",
+    "dev": "bash dev.sh",
     "build": "vite build",
     "start": "node dist/server.cjs",
     "preview": "vite preview",
     "clean": "rm -rf dist",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "postinstall": "chmod +x optimize_fedora.sh io_causality_probe_v29.py dev.sh"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",

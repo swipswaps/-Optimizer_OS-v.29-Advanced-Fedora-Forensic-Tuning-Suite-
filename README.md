@@ -31,6 +31,34 @@ Today, Optimizer_OS is a high-density, real-time diagnostic platform that treats
     *   Export the Causal Graph as **SVG** for reports.
     *   Export Forensic History as **JSON** for offline analysis.
 
+## Getting Started
+
+To deploy and run the Optimizer_OS suite locally on your Fedora machine:
+
+### 1. Installation
+Clone the repository and install the Node.js and Python dependencies:
+```bash
+git clone https://github.com/username/optimizer_os.git
+cd optimizer_os
+npm install
+# Ensure you have Python 3 and requisite permissions
+```
+
+### 2. Launching the Suite
+Optimizer_OS is a self-managing environment. Starting the server automatically initializes the causality probe and diagnostic background workers:
+
+```bash
+npm run dev
+```
+
+The system will now:
+1. Start the React/Vite dashboard.
+2. Spawn the Python Causality Probe (v29) to begin forensic monitoring.
+3. Establish the simulated kernel interface for parameter tuning.
+
+### 3. Tuning & Optimization
+You can apply optimizations directly through the UI. Use the **Run Global Analysis** button in the **Optimizers** tab to generate a tailored command set for your hardware.
+
 ---
 
 ## Under the Hood: Technical Architecture
