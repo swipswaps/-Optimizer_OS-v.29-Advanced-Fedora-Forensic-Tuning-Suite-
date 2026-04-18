@@ -88,7 +88,8 @@ def snapshot_worker():
         except Exception as e:
             log(f"Snapshot worker failure: {e}")
 
-threading.Thread(target=snapshot_worker, daemon=True).start()
+_worker_thread = threading.Thread(target=snapshot_worker, daemon=True)
+_worker_thread.start()
 
 # --- SIGNALS ---
 def get_psi():
@@ -183,6 +184,7 @@ def handle_exit(signum, frame):
     log("Termination received. Flushing logs...")
 
 signal.signal(signal.SIGINT, handle_exit)
+signal.signal(signal.SIGTERM, handle_exit)
 
 while run_state["running"]:
     t_start = time.perf_counter()
@@ -238,4 +240,6 @@ while run_state["running"]:
     elapsed = time.perf_counter() - t_start
     time.sleep(max(0, target_interval - elapsed))
 
+# Drain queued snapshots before exit (survives SIGTERM from parent supervisor)
+_worker_thread.join(timeout=5)
 log("Probe exited cleanly.")

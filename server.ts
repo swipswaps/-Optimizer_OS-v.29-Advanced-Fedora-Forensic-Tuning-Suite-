@@ -36,12 +36,26 @@ let activeProbe: ChildProcess | null = null;
 let probeRestartDelay = 1000;
 const MAX_PROBE_RESTART_DELAY = 60000; // 1 minute max backoff
 
+// Input-validation guards (reject path traversal / command injection)
+const PROFILE_NAME_RE = /^[A-Za-z0-9_.-]{1,64}$/;
+const EVENT_ID_RE = /^[0-9]{8}_[0-9]{6}$/;
+const ACTION_ALLOWLIST: RegExp[] = [
+  /^sysctl -w vm\.(swappiness|dirty_ratio|dirty_background_ratio|vfs_cache_pressure)=[0-9]{1,3}$/,
+  /^ionice -c [0-3]( -n [0-7])? -p (ALL|[0-9]+)$/,
+  /^systemctl --user (stop|start|restart|mask|unmask) [a-zA-Z0-9@:_.-]+$/,
+  /^echo \[zram0\] > \/etc\/systemd\/zram-generator\.conf$/,
+  /^renice [+-]?[0-9]+ -p [0-9]+$/,
+];
+const isActionAllowed = (a: unknown): a is string =>
+  typeof a === "string" && ACTION_ALLOWLIST.some(re => re.test(a));
+
 async function startServer() {
   const app = express();
   const PORT = 3000;
 
   // Initialize Probe as a managed background process with auto-restart
   function startProbe() {
+    if (shuttingDown) return;
     const probePath = path.resolve("./io_causality_probe_v29.py");
     if (!fs.existsSync(probePath)) return;
 
@@ -54,10 +68,11 @@ async function startServer() {
     activeProbe.on("close", (code) => {
       console.log(`[SYSTEM] Probe process exited with code ${code}.`);
       activeProbe = null;
-      
+      if (shuttingDown) return; // Do not schedule restart during cleanup
+
       // Exponential Backoff Protection (Inspired by pm2/systemd)
       if (probeRestartTimer) clearTimeout(probeRestartTimer);
-      
+
       console.log(`[KINETIC_RECOVERY] Scheduling restart in ${probeRestartDelay}ms...`);
       probeRestartTimer = setTimeout(() => {
         probeRestartDelay = Math.min(probeRestartDelay * 2, MAX_PROBE_RESTART_DELAY);
@@ -115,7 +130,7 @@ async function startServer() {
       else if (state.lat > thresholds.latency) action = "ionice -c 3 -p ALL";
       else if (state.d_count >= thresholds.d_state) action = "systemctl --user stop tracker-miner-fs-3";
 
-      if (action) {
+      if (action && isActionAllowed(action)) {
         console.log(`[AUTOMATION] Triggered action: ${action}`);
         exec(action, (err, stdout, stderr) => {
            if (err) {
@@ -127,6 +142,8 @@ async function startServer() {
            fs.appendFileSync(logPath, logEntry);
         });
         lastAutoActionTime = now;
+      } else if (action) {
+        console.warn(`[AUTOMATION] Rejected action (not in allowlist): ${action}`);
       }
     } catch (e) {
       console.error("[AUTOMATION_ERR]", e);
@@ -164,7 +181,14 @@ async function startServer() {
   // API to get details of a specific event
   app.get("/api/probe-logs/:id", (req, res) => {
     const eventId = req.params.id;
-    const eventDir = path.resolve("./io_probe_logs_v29", eventId);
+    if (!EVENT_ID_RE.test(eventId)) {
+        return res.status(400).json({ error: "Invalid event id" });
+    }
+    const logRoot = path.resolve("./io_probe_logs_v29");
+    const eventDir = path.resolve(logRoot, eventId);
+    if (!eventDir.startsWith(logRoot + path.sep)) {
+        return res.status(400).json({ error: "Path traversal rejected" });
+    }
 
     if (!fs.existsSync(eventDir)) {
         return res.status(404).json({ error: "Not found" });
@@ -326,15 +350,21 @@ async function startServer() {
 
   app.post("/api/tuner/profiles", (req, res) => {
     const { name, description, data, type } = req.body;
-    if (!name) return res.status(400).json({ error: "Name required" });
+    if (!name || typeof name !== "string" || !PROFILE_NAME_RE.test(name)) {
+      return res.status(400).json({ error: "Invalid profile name (allowed: A-Z a-z 0-9 _ . - , 1-64 chars)" });
+    }
+    const targetPath = path.resolve(profileDir, `${name}.json`);
+    if (!targetPath.startsWith(profileDir + path.sep)) {
+      return res.status(400).json({ error: "Path traversal rejected" });
+    }
     try {
       const profileContent = {
         name,
-        description: description || "",
+        description: typeof description === "string" ? description : "",
         type: type || (Array.isArray(data) ? 'optimizer' : 'kernel'),
         data
       };
-      fs.writeFileSync(path.join(profileDir, `${name}.json`), JSON.stringify(profileContent, null, 2));
+      fs.writeFileSync(targetPath, JSON.stringify(profileContent, null, 2));
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: String(error) });
@@ -343,21 +373,38 @@ async function startServer() {
 
   app.post("/api/tuner/apply", (req, res) => {
     const { actions } = req.body;
-    
-    // Automation: Actually attempt to apply non-privileged or staged changes
-    // In a production scenario, this interacts with a polkit agent or helper
-    actions.forEach((action: string) => {
+    if (!Array.isArray(actions)) {
+      return res.status(400).json({ error: "actions must be an array of strings" });
+    }
+    const accepted: string[] = [];
+    const rejected: string[] = [];
+    for (const action of actions) {
+      if (isActionAllowed(action)) accepted.push(action);
+      else rejected.push(String(action));
+    }
+    if (rejected.length > 0) {
+      console.warn(`[TUNER] Rejected ${rejected.length} action(s) not in allowlist: ${rejected.join(" | ")}`);
+    }
+
+    // Only allowlisted actions reach exec(); everything else is dropped.
+    accepted.forEach((action) => {
       console.log(`[TUNER] Executing: ${action}`);
-      // Simulated safe execution for common tunables
       exec(action, (err, stdout, stderr) => {
         if (err) console.error(`[TUNER_ERR] ${action}: ${stderr}`);
       });
     });
 
     const logPath = path.resolve("./applied_optimizations.log");
-    const logEntry = `[${new Date().toISOString()}] Applied: ${actions.join(", ")}\n`;
+    const logEntry = `[${new Date().toISOString()}] Applied: ${accepted.join(", ")}${rejected.length ? ` | Rejected: ${rejected.join(", ")}` : ""}\n`;
     fs.appendFileSync(logPath, logEntry);
-    res.json({ success: true, message: "Parameters applied. System transitioning to new state." });
+    res.json({
+      success: true,
+      applied: accepted,
+      rejected,
+      message: rejected.length === 0
+        ? "Parameters applied. System transitioning to new state."
+        : `Applied ${accepted.length}, rejected ${rejected.length} (not in allowlist).`
+    });
   });
 
   // Real-time Kernel Parameter Management
@@ -515,20 +562,25 @@ async function startServer() {
     purgeOldLogs(logDir, 200);
   }, 3600000); // Hourly
 
-  const server = app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+  // Bind to loopback only: the API executes privileged system actions
+  // and must not be reachable from the LAN. Override via BIND_HOST if needed.
+  const BIND_HOST = process.env.BIND_HOST || "127.0.0.1";
+  const server = app.listen(PORT, BIND_HOST, () => {
+    console.log(`Server running on http://${BIND_HOST}:${PORT}`);
   });
 
   // CLEAN SHUTDOWN HANDLER
   const cleanup = () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
     console.log("\n[SHUTDOWN] Cleaning up forensic environment...");
     if (probeRestartTimer) clearTimeout(probeRestartTimer);
-    
+
     if (activeProbe) {
       console.log("[SHUTDOWN] Terminating I/O Probe...");
       activeProbe.kill("SIGTERM");
     }
-    
+
     server.close(() => {
       console.log("[SHUTDOWN] API Server stopped.");
     });
@@ -538,7 +590,7 @@ async function startServer() {
     try {
       fs.appendFileSync(logPath, logEntry);
     } catch(e) {}
-    
+
     setTimeout(() => {
       console.log("[SHUTDOWN] Forced exit.");
       process.exit(0);
@@ -550,4 +602,5 @@ async function startServer() {
 }
 
 let probeRestartTimer: NodeJS.Timeout | null = null;
+let shuttingDown = false;
 startServer();
